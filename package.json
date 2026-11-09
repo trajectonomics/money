@@ -1,0 +1,57 @@
+{
+	"name": "@trajectonomics/money",
+	"version": "0.0.0-development",
+	"description": "Pure decimal scaling: major units to integer Minor Units and back, with precision supplied by the caller.",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/trajectonomics/money.git"
+	},
+	"type": "module",
+	"sideEffects": false,
+	"packageManager": "bun@1.4.4",
+	"engines": {
+		"node": ">=20.0.0"
+	},
+	"main": "./dist/index.cjs",
+	"module": "./dist/index.mjs",
+	"types": "./dist/index.d.cts",
+	"exports": {
+		".": {
+			"import": {
+				"types": "./dist/index.d.mts",
+				"default": "./dist/index.mjs"
+			},
+			"require": {
+				"types": "./dist/index.d.cts",
+				"default": "./dist/index.cjs"
+			}
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist"
+	],
+	"publishConfig": {
+		"access": "public",
+		"provenance": true
+	},
+	"scripts": {
+		"build": "tsdown",
+		"test": "bun test --coverage --coverage-reporter=lcov --coverage-reporter=text && bun run scripts/check-coverage.ts",
+		"typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
+		"lint": "biome ci --error-on-warnings .",
+		"format": "biome check --write .",
+		"check": "bun run lint && bun run typecheck && bun run test && bun run build && bun run lint:package",
+		"lint:package": "publint --strict && attw --pack . --profile node16"
+	},
+	"devDependencies": {
+		"@arethetypeswrong/cli": "^0.18.5",
+		"@biomejs/biome": "2.6.3",
+		"@trajectonomics/tooling": "1.1.0",
+		"@types/bun": "^1.4.4",
+		"publint": "^0.3.25",
+		"tsdown": "^0.23.2",
+		"typescript": "^7.0.2"
+	}
+}
