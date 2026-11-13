@@ -38,6 +38,7 @@ describe("toMinorUnits", () => {
 	})
 
 	it("rounds half away from zero at large magnitudes", () => {
+		expect(toMinorUnits(524416029453.2775, 3)).toBe(524416029453278)
 		expect(toMinorUnits(524416029453.27795, 3)).toBe(524416029453278)
 	})
 
