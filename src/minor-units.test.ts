@@ -26,6 +26,16 @@ describe("toMinorUnits", () => {
 		expect(toMinorUnits(1.2345, 4)).toBe(12345)
 	})
 
+	it("rounds on the decimal digits above 2^48 Minor Units instead of a re-parsed double", () => {
+		expect(toMinorUnits(45025932267308.234, 2)).toBe(4502593226730823)
+		expect(toMinorUnits(45000434517860.414, 2)).toBe(4500043451786041)
+		expect(toMinorUnits(524416029453.27747, 3)).toBe(524416029453277)
+		expect(toMinorUnits(537069261074.06647, 3)).toBe(537069261074066)
+		expect(toMinorUnits(-45025932267308.234, 2, "amount", { allowNegative: true })).toBe(
+			-4502593226730823,
+		)
+	})
+
 	it("scales scientific-notation input instead of returning NaN", () => {
 		expect(toMinorUnits(1e-7, 2)).toBe(0)
 		expect(Number.isNaN(toMinorUnits(1e-7, 2))).toBe(false)
