@@ -10,11 +10,11 @@ import {
  * Scales an absolute amount by `precision` decimal places and rounds it half away from zero.
  *
  * Math: The integer part of the expanded decimal string is exact below 2^53, and its first
- * dropped digit decides the round, so the result never depends on a re-parsed double that can
- * land on `.5` and round a second time. Scientific notation is scaled directly.
+ * dropped digit decides the round, so a re-parsed double that can land on `.5` and round a
+ * second time never decides the result. A scientific-notation amount is scaled directly.
  * Units: input in major units, output as rounded integer Minor Units.
  */
-function scaleDecimalString(abs: number, precision: number): number {
+function scaleToMinorUnits(abs: number, precision: number): number {
 	const factor = 10 ** precision
 	if (String(abs).includes("e")) {
 		return Math.round(abs * factor)
@@ -24,7 +24,8 @@ function scaleDecimalString(abs: number, precision: number): number {
 	const decPart = (parts[1] ?? "").padEnd(precision, "0")
 	const whole = intPart + decPart.slice(0, precision)
 	const firstDropped = decPart.charAt(precision)
-	return Number(whole) + (firstDropped >= "5" ? 1 : 0)
+	const roundsUp = firstDropped !== "" && firstDropped >= "5"
+	return Number(whole) + (roundsUp ? 1 : 0)
 }
 
 /**
@@ -33,8 +34,7 @@ function scaleDecimalString(abs: number, precision: number): number {
  * Purpose: Exact major-to-Minor conversion for any currency, with precision supplied by the caller.
  * Math: Expands the shortest decimal representation, decides the rounding from its first dropped
  * digit, and rounds half away from zero, so neither binary float noise (`1.005 * 100`) nor a
- * re-parsed double above 2^48 Minor Units decides the result; scientific notation is scaled
- * directly.
+ * re-parsed double decides the result; scientific notation is scaled directly.
  * Units: input in major units, output as integer Minor Units.
  * Throws: MoneyValidationError when `digits` is out of range, the amount is `NaN`, infinite or
  * negative without `allowNegative`, or the result leaves the safe integer range.
@@ -55,7 +55,7 @@ export function toMinorUnits(
 	validateDigits(digits)
 	validateMonetaryAmount(amount, field, options)
 	const sign = amount < 0 ? -1 : 1
-	const result = sign * scaleDecimalString(Math.abs(amount), digits) + 0
+	const result = sign * scaleToMinorUnits(Math.abs(amount), digits) + 0
 	if (!Number.isSafeInteger(result)) {
 		throw new MoneyValidationError(
 			field,
