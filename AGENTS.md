@@ -13,6 +13,10 @@ Instructions for AI coding agents in `trajectonomics/money` (`@trajectonomics/mo
 7. Postponed work is tracked by the issue tracker, not by prose: file an issue, then leave `TODO(#<issue>)` at the code site it belongs to.
 8. Keep the surface bounded: only the two conversions, the validation they need, and `MoneyValidationError` are exported. Rounding, percentages, statutory caps and currency-tagged money types belong to the consuming packages, and a new export needs a second consumer.
 
+## Organisation goals
+
+The organisation's goals are in https://github.com/trajectonomics/goals, `GOALS.md`. Read them before proposing a new direction. Only the owner edits that file; never edit it.
+
 ## Agent skills
 
 ### Issue tracker
