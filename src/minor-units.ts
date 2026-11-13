@@ -7,11 +7,12 @@ import {
 } from "./validate"
 
 /**
- * Scales an absolute amount by `precision` decimal places and rounds it half away from zero.
+ * Scales an absolute amount by `precision` fractional decimal digits and rounds it half away
+ * from zero.
  *
  * Math: The integer part of the expanded decimal string is exact below 2^53, and its first
- * dropped digit decides the round, so a re-parsed double that can land on `.5` and round a
- * second time never decides the result. A scientific-notation amount is scaled directly.
+ * dropped digit decides the round, which keeps the decision off a re-parsed double (see
+ * `toMinorUnits`). A scientific-notation amount is scaled directly.
  * Units: input in major units, output as rounded integer Minor Units.
  */
 function scaleToMinorUnits(abs: number, precision: number): number {
@@ -23,8 +24,8 @@ function scaleToMinorUnits(abs: number, precision: number): number {
 	const intPart = parts[0] ?? "0"
 	const decPart = (parts[1] ?? "").padEnd(precision, "0")
 	const whole = intPart + decPart.slice(0, precision)
-	const firstDropped = decPart.charAt(precision)
-	const roundsUp = firstDropped !== "" && firstDropped >= "5"
+	const firstDropped = decPart.at(precision)
+	const roundsUp = firstDropped !== undefined && Number(firstDropped) >= 5
 	return Number(whole) + (roundsUp ? 1 : 0)
 }
 
@@ -32,9 +33,10 @@ function scaleToMinorUnits(abs: number, precision: number): number {
  * Converts a major-unit amount to integer Minor Units.
  *
  * Purpose: Exact major-to-Minor conversion for any currency, with precision supplied by the caller.
- * Math: Expands the shortest decimal representation, decides the rounding from its first dropped
- * digit, and rounds half away from zero, so neither binary float noise (`1.005 * 100`) nor a
- * re-parsed double decides the result; scientific notation is scaled directly.
+ * Math: Expands the shortest decimal representation, decides the round from its first dropped
+ * digit and rounds half away from zero, so binary float multiplication (`1.005 * 100`) and a
+ * re-parsed double play no part in a decimal amount's result. A scientific-notation amount is
+ * scaled directly instead.
  * Units: input in major units, output as integer Minor Units.
  * Throws: MoneyValidationError when `digits` is out of range, the amount is `NaN`, infinite or
  * negative without `allowNegative`, or the result leaves the safe integer range.

@@ -32,10 +32,13 @@ describe("toMinorUnits", () => {
 		expect(toMinorUnits(524416029453.27747, 3)).toBe(524416029453277)
 		expect(toMinorUnits(537069261074.06647, 3)).toBe(537069261074066)
 		expect(toMinorUnits(1698485086726.2249, 2)).toBe(169848508672622)
-		expect(toMinorUnits(524416029453.27795, 3)).toBe(524416029453278)
 		expect(toMinorUnits(-45025932267308.234, 2, "amount", { allowNegative: true })).toBe(
 			-4502593226730823,
 		)
+	})
+
+	it("rounds half away from zero at large magnitudes", () => {
+		expect(toMinorUnits(524416029453.27795, 3)).toBe(524416029453278)
 	})
 
 	it("scales scientific-notation input instead of returning NaN", () => {
