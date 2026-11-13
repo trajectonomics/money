@@ -6,25 +6,35 @@ import {
 	validateMonetaryAmount,
 } from "./validate"
 
-function scaleDecimalString(abs: number, precision: number): number {
-	const factor = 10 ** precision
+/**
+ * Scales an absolute amount by `digits` fractional decimal digits and rounds it half away from
+ * zero.
+ *
+ * Math: The integer part of the scaled value is exact below 2^53, and the first digit beyond it
+ * decides the round. `toMinorUnits` states the public guarantee this implements.
+ * Units: input in major units, output as rounded integer Minor Units.
+ */
+function scaleToMinorUnits(abs: number, digits: number): number {
+	const factor = 10 ** digits
 	if (String(abs).includes("e")) {
-		return abs * factor
+		return Math.round(abs * factor)
 	}
 	const parts = String(abs).split(".")
 	const intPart = parts[0] ?? "0"
-	const decPart = (parts[1] ?? "").padEnd(precision, "0")
-	const whole = intPart + decPart.slice(0, precision)
-	const fraction = decPart.slice(precision)
-	return Number(whole + (fraction.length > 0 ? `.${fraction}` : ""))
+	const decPart = (parts[1] ?? "").padEnd(digits, "0")
+	const whole = intPart + decPart.slice(0, digits)
+	const firstDropped = decPart.at(digits)
+	const roundsUp = firstDropped !== undefined && Number(firstDropped) >= 5
+	return Number(whole) + (roundsUp ? 1 : 0)
 }
 
 /**
  * Converts a major-unit amount to integer Minor Units.
  *
  * Purpose: Exact major-to-Minor conversion for any currency, with precision supplied by the caller.
- * Math: Expands the shortest decimal representation and rounds half away from zero, so binary
- * float noise (`1.005 * 100`) never decides the result; scientific notation is scaled directly.
+ * Math: Expands the shortest decimal representation and rounds half away from zero on those
+ * digits, so binary float multiplication (`1.005 * 100`) and a re-parsed double play no part in
+ * a decimal amount's result. A scientific-notation amount is scaled directly.
  * Units: input in major units, output as integer Minor Units.
  * Throws: MoneyValidationError when `digits` is out of range, the amount is `NaN`, infinite or
  * negative without `allowNegative`, or the result leaves the safe integer range.
@@ -45,8 +55,7 @@ export function toMinorUnits(
 	validateDigits(digits)
 	validateMonetaryAmount(amount, field, options)
 	const sign = amount < 0 ? -1 : 1
-	const scaled = scaleDecimalString(Math.abs(amount), digits)
-	const result = sign * Math.round(scaled) + 0
+	const result = sign * scaleToMinorUnits(Math.abs(amount), digits) + 0
 	if (!Number.isSafeInteger(result)) {
 		throw new MoneyValidationError(
 			field,
