@@ -69,7 +69,9 @@ export function toMinorUnits(
 /**
  * Converts integer Minor Units back to a major-unit amount.
  *
- * Purpose: Inverse of `toMinorUnits`, producing the shortest decimal a double can carry.
+ * Purpose: Major-unit form of integer Minor Units. `toMinorUnits` converts it back for every
+ * safe integer at precision 0, and when the absolute value is at most 10^15 at precision 1
+ * through 15. A larger result is still returned and is not a Canonical Amount.
  * Math: Divides by `10 ** digits` and fixes the result to `digits` decimals, which also
  * normalises `-0` to `+0`.
  * Units: input as integer Minor Units, output in major units.

@@ -32,7 +32,7 @@ fromMinorUnits(500, 0) // 500
 
 `toMinorUnits(amount, digits, field?, options?)` expands the amount's shortest decimal representation and rounds half away from zero, so the result never depends on binary floating-point multiplication. Scientific-notation input is scaled directly rather than mis-parsed.
 
-`fromMinorUnits(minorUnits, digits, field?, options?)` is the inverse and also normalises `-0` to `+0`.
+`fromMinorUnits(minorUnits, digits, field?, options?)` produces the major-unit form and normalises `-0` to `+0`. It converts back through `toMinorUnits` for every safe integer when `digits` is 0, and when the absolute Minor Units value is at most 10^15 for `digits` from 1 through 15. That range is the precision the caller may already pass (0 for `JPY`, 2 for `THB` and `USD`, 3 for `KWD`). A larger result is still a number, and it is not a Canonical Amount.
 
 Both throw `MoneyValidationError` - carrying `field`, `value` and `reason` - when the precision is not a safe integer in `0..15`, the amount is `NaN` or infinite, a negative amount arrives without `allowNegative`, an amount is not an integer where one is required, or a result leaves the safe integer range.
 
@@ -40,9 +40,9 @@ Both throw `MoneyValidationError` - carrying `field`, `value` and `reason` - whe
 
 Convert **once**, at the boundary you own, and carry integer Minor Units from there:
 
-- A value that came out of `fromMinorUnits` is canonical: it converts back to the same integer, so converting it once with any implementation is exact.
+- A Canonical Amount from `fromMinorUnits` converts back to the same integer Minor Units: every safe integer at precision 0, and an absolute value of at most 10^15 at precision 1 through 15. Carry the integer Minor Units when the value is larger.
 - A refund is negative. Pass `{ allowNegative: true }` when converting a net figure that can be below zero.
-- Do not convert a value with one money implementation and re-convert it with another in the same flow; the diverging input classes are computed floats and amounts near the top of the safe integer range.
+- Convert once, at the boundary you own. A second conversion of a major-unit value above that bound can move the integer by one Minor Unit.
 
 ## Commands
 

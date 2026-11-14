@@ -13,5 +13,5 @@ The number of fractional decimal digits a currency's Minor Unit implies - 0 for 
 _Avoid_: Scale, exponent, decimal places
 
 **Canonical Amount**:
-A major-unit value produced by `fromMinorUnits`, which converts back to the same integer Minor Units under either implementation. Amounts crossing a package boundary should be canonical.
+A major-unit value produced by `fromMinorUnits` that `toMinorUnits` converts back to the same integer Minor Units: every safe integer at Currency Precision 0, and an absolute Minor Units value of at most 10^15 at precision 1 through 15. Above that bound the returned value is not canonical, so a boundary crossing keeps the integer Minor Units.
 _Avoid_: Rounded money, clean float
