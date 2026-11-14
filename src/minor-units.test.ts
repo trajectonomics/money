@@ -10,6 +10,54 @@ const errorOf = (fn: () => unknown): MoneyValidationError => {
 	throw new Error("expected the call to throw")
 }
 
+const CANONICAL_BOUND = 10 ** 15
+
+/** Fixed-seed linear congruential generator, so the sweep repeats exactly without randomness. */
+const createSampler = (seed: number) => {
+	const step = (state: number) => (Math.imul(state, 1664525) + 1013904223) >>> 0
+	let state = seed
+	return (max: number): number => {
+		state = step(state)
+		const high = state
+		state = step(state)
+		return (high * 2 ** 21 + (state >>> 11)) % (max + 1)
+	}
+}
+
+type CanonicalCase = { digits: number; minorUnits: number }
+
+/** Boundary values plus seeded samples inside the bound, at every precision and both signs. */
+const canonicalCases = (): CanonicalCase[] => {
+	const sample = createSampler(0x9e3779b9)
+	const cases: CanonicalCase[] = []
+	for (let digits = 0; digits <= 15; digits += 1) {
+		const boundary = [0, 1, CANONICAL_BOUND - 1, CANONICAL_BOUND]
+		const sampled = Array.from({ length: 512 }, () => sample(CANONICAL_BOUND))
+		for (const minorUnits of [...boundary, ...sampled]) {
+			cases.push({ digits, minorUnits })
+			if (minorUnits > 0) cases.push({ digits, minorUnits: -minorUnits })
+		}
+	}
+	return cases
+}
+
+const roundTrip = (minorUnits: number, digits: number): number =>
+	toMinorUnits(
+		fromMinorUnits(minorUnits, digits, "minorUnits", { allowNegative: true }),
+		digits,
+		"amount",
+		{ allowNegative: true },
+	)
+
+/** Places the decimal point in the integer's digits, left-padding to reach the precision. */
+const majorUnitString = (minorUnits: number, digits: number): string => {
+	const digitsOnly = String(Math.abs(minorUnits)).padStart(digits + 1, "0")
+	const splitAt = digitsOnly.length - digits
+	const major = digitsOnly.slice(0, splitAt)
+	const sign = minorUnits < 0 ? "-" : ""
+	return digits === 0 ? `${sign}${major}` : `${sign}${major}.${digitsOnly.slice(splitAt)}`
+}
+
 describe("toMinorUnits", () => {
 	it("converts without binary float drift", () => {
 		expect(toMinorUnits(1.14, 2)).toBe(114)
@@ -108,6 +156,33 @@ describe("fromMinorUnits", () => {
 
 	it("rejects an out-of-range precision", () => {
 		expect(() => fromMinorUnits(114, 99)).toThrow(MoneyValidationError)
+	})
+})
+
+describe("Canonical Amount", () => {
+	it("round-trips sampled minor units inside the 10^15 bound at precision 0 through 15", () => {
+		for (const { digits, minorUnits } of canonicalCases()) {
+			expect(roundTrip(minorUnits, digits)).toBe(minorUnits)
+		}
+	})
+
+	it("round-trips the largest safe integer at precision 0", () => {
+		expect(roundTrip(Number.MAX_SAFE_INTEGER, 0)).toBe(Number.MAX_SAFE_INTEGER)
+	})
+
+	it("records the published precision-2 miss above the bound", () => {
+		// Pins today's result so a behaviour change is visible. Callers must not rely on the
+		// one-unit difference, and this does not claim the next integer fails.
+		expect(roundTrip(9_007_199_254_740_991, 2)).toBe(9_007_199_254_740_990)
+	})
+
+	it("matches decimal-point placement inside the bound at precision 0 through 15", () => {
+		for (const { digits, minorUnits } of canonicalCases()) {
+			const placed = toMinorUnits(Number(majorUnitString(minorUnits, digits)), digits, "amount", {
+				allowNegative: true,
+			})
+			expect(placed).toBe(roundTrip(minorUnits, digits))
+		}
 	})
 })
 
