@@ -11,6 +11,10 @@ const CANONICAL_BOUND = 10 ** 15
 const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER)
 /** 17-digit amounts tried per precision; the exactness guard keeps about a tenth of them. */
 const LONG_DECIMALS = 640
+/** Digits in the scaled column the long decimals land in, where #6 double-rounded. */
+const SCALED_DIGITS = 16
+/** Seeded Canonical Amounts per precision, beside the four boundary values. */
+const CANONICAL_SAMPLES = 128
 /** Floors that stop a guard from quietly emptying the sweep out. */
 const MIN_ROWS = 50
 /** The exclusion may drop the 18 Canonical Amount boundary rows below 1e-6 and little more. */
@@ -20,7 +24,10 @@ const TIE_MAGNITUDES = [1, 2, 123, 450_359_962_737, 9_007_199_254_740]
 /** Powers of two in the 2^48..2^53 double-rounding band, and the Canonical Amount bound. */
 const EDGE_MINOR_UNITS = [2 ** 48, 2 ** 49, 2 ** 50, 2 ** 51, 2 ** 52, 2 ** 53, CANONICAL_BOUND]
 
-/** Fixed-seed linear congruential generator, as in `minor-units.test.ts`, so nothing is random. */
+/**
+ * Fixed-seed linear congruential generator, as in `minor-units.test.ts`, so nothing is random.
+ * Seeds are arbitrary and offset by precision, so each precision walks its own sequence.
+ */
 const createSampler = (seed: number) => {
 	const step = (state: number) => (Math.imul(state, 1664525) + 1013904223) >>> 0
 	let state = seed
@@ -35,10 +42,10 @@ const createSampler = (seed: number) => {
 type Candidate = { readonly text: string; readonly tie: boolean }
 type Drop = "exponent" | "unexact" | "out-of-range"
 
-/** Parses a plain decimal into a signed BigInt mantissa and its fraction length. */
-const parseDecimal = (text: string): { mantissa: bigint; fractionDigits: number } => {
+/** Parses a plain decimal into a signed BigInt mantissa and its fraction length; null if it is not. */
+const parseDecimal = (text: string): { mantissa: bigint; fractionDigits: number } | null => {
 	const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(text)
-	if (match === null) throw new Error(`not a plain decimal: ${text}`)
+	if (match === null) return null
 	const fraction = match[3] ?? ""
 	const magnitude = BigInt((match[2] ?? "") + fraction)
 	return { mantissa: match[1] === "-" ? -magnitude : magnitude, fractionDigits: fraction.length }
@@ -49,8 +56,10 @@ const parseDecimal = (text: string): { mantissa: bigint; fractionDigits: number 
  * zero on the remainder of an integer division. It multiplies no double and calls no `Math.round`,
  * and it rounds the magnitude before reapplying the sign, so both sides round away from zero.
  */
-const referenceMinorUnits = (amount: number, digits: number): bigint => {
-	const { mantissa, fractionDigits } = parseDecimal(String(amount))
+const referenceMinorUnits = (amount: number, digits: number): bigint | null => {
+	const parsed = parseDecimal(String(amount))
+	if (parsed === null) return null
+	const { mantissa, fractionDigits } = parsed
 	const negative = mantissa < 0n
 	const magnitude = negative ? -mantissa : mantissa
 	if (digits >= fractionDigits) {
@@ -75,6 +84,7 @@ const guard = (text: string, digits: number): bigint | Drop => {
 	if (asDouble.includes("e")) return "exponent"
 	if (asDouble !== text) return "unexact"
 	const expected = referenceMinorUnits(Number(text), digits)
+	if (expected === null) return "unexact"
 	return (expected < 0n ? -expected : expected) > MAX_SAFE ? "out-of-range" : expected
 }
 
@@ -122,11 +132,11 @@ const edgeCases = (digits: number): Candidate[] =>
  * double-rounded in. A row whose last digit is 5 is an exact tie at this precision.
  */
 const longDecimalCases = (digits: number, sample: (max: number) => number): Candidate[] => {
-	const splitAt = Math.max(1, 16 - digits)
+	const splitAt = Math.max(1, SCALED_DIGITS - digits)
 	const randomDigit = () => String(sample(9))
 	const cases: Candidate[] = []
 	for (let attempt = 0; attempt < LONG_DECIMALS; attempt += 1) {
-		const digitsOnly = `${sample(8) + 1}${Array.from({ length: 16 }, randomDigit).join("")}`
+		const digitsOnly = `${sample(8) + 1}${Array.from({ length: SCALED_DIGITS }, randomDigit).join("")}`
 		const text = `${digitsOnly.slice(0, splitAt)}.${digitsOnly.slice(splitAt)}`
 		const tie = digitsOnly.endsWith("5")
 		cases.push({ text, tie }, { text: `-${text}`, tie })
@@ -198,7 +208,7 @@ const sweepToMinorUnits = (digits: number): Sweep => {
 const canonicalCases = (digits: number): number[] => {
 	const sample = createSampler(0x2000 + digits)
 	const boundary = [0, 1, CANONICAL_BOUND - 1, CANONICAL_BOUND]
-	const sampled = Array.from({ length: 128 }, () => sample(CANONICAL_BOUND))
+	const sampled = Array.from({ length: CANONICAL_SAMPLES }, () => sample(CANONICAL_BOUND))
 	return [...boundary, ...sampled].flatMap((minorUnits) =>
 		minorUnits > 0 ? [minorUnits, -minorUnits] : [minorUnits],
 	)
@@ -240,6 +250,8 @@ describe("exact decimal reference", () => {
 			const sweep = sweepFromMinorUnits(digits)
 			expect(accounted(sweep), `Canonical Amounts at ${digits} digits`).toBe(sweep.attempted)
 			expect(sweep.checked, `rows at ${digits} digits`).toBeGreaterThanOrEqual(MIN_ROWS)
+			// No tie floor here: a Canonical Amount is an exact multiple of its Minor Unit, so this
+			// direction never rounds, and a tie is impossible by construction.
 			for (const text of sweep.exponentDropped) expect(String(Number(text))).toContain("e")
 			expect(
 				sweep.exponentDropped.length,
