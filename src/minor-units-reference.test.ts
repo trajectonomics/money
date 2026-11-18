@@ -13,45 +13,62 @@ const LONG_DECIMALS = 640
 const SCALED_DIGITS = 16
 /** Seeded Canonical Amounts per precision, beside the four boundary values. */
 const CANONICAL_SAMPLES = 128
-/** Exact ties at five magnitudes, both signs: the half Minor Unit the rule rounds away from zero. */
-const TIE_MAGNITUDES = [1, 2, 123, 450_359_962_737, 9_007_199_254_740]
+/** Seeded tie and near-tie mantissas tried per precision. */
+const TIE_ATTEMPTS = 64
+/** Significant digits in a tie mantissa; 17 does not round-trip at the low precisions. */
+const TIE_DIGITS = 16
+
+// A tie at `digits` is a decimal whose last written digit is the 5 that gets dropped: the mantissa
+// is seeded to `TIE_DIGITS` significant digits ending in `tail`, and the point placed so exactly
+// `digits + 1` decimals follow it. A short decimal cannot be a tie above precision 14 anyway:
+// `1.0000000000000005` needs 17 significant digits, so `String(Number(...))` returns
+// `1.0000000000000004` and the guard must reject that row as a near-tie.
+const tieText = (seed: number, digits: number, tail: string): string => {
+	const sample = createSampler(seed)
+	const head = String(sample(8) + 1)
+	const body = Array.from({ length: TIE_DIGITS - 2 }, () => String(sample(9))).join("")
+	const mantissa = `${head}${body}${tail}`
+	const intLength = mantissa.length - (digits + 1)
+	return intLength <= 0
+		? `0.${"0".repeat(-intLength)}${mantissa}`
+		: `${mantissa.slice(0, intLength)}.${mantissa.slice(intLength)}`
+}
+
 /** Powers of two in the 2^48..2^53 double-rounding band, where the old code double-rounded. */
 const BAND_MINOR_UNITS = [2 ** 48, 2 ** 49, 2 ** 50, 2 ** 51, 2 ** 52, 2 ** 53]
 /** Both sides of the Canonical Amount bound: the guarantee holds below it and is pinned above it. */
 const BOUND_MINOR_UNITS = [CANONICAL_BOUND - 1, CANONICAL_BOUND, CANONICAL_BOUND + 1]
 /** The exclusion may drop the 18 Canonical Amount boundary rows below 1e-6 and little more. */
 const MAX_EXPONENT_DROPS = 32
-/** Seed offsets, arbitrary but fixed, so each precision walks its own sequence. */
+/** `String` writes `e` below 1e-6 and at or above 1e21. */
+const writesWithExponent = (amount: number): boolean =>
+	Math.abs(amount) < 1e-6 || Math.abs(amount) >= 1e21
+/** Seed offsets, arbitrary but fixed, so each family walks its own sequence. */
 const LONG_DECIMAL_SEED = 0x1000
 const CANONICAL_SEED = 0x2000
+const TIE_SEED = 0x3000
 
 type Family = "tie" | "nearTie" | "edge" | "bound" | "long" | "canonical"
-type Candidate = {
-	readonly text: string
-	readonly tie: boolean
-	readonly family: Family
-	/** The Minor Units this amount came from, in the `fromMinorUnits` direction only. */
-	readonly minorUnits?: number
-}
+// `minorUnits` is populated in the `fromMinorUnits` direction only.
+type Candidate = { readonly text: string; readonly family: Family; readonly minorUnits?: number }
 type Drop = "exponent" | "inexact" | "out-of-range"
 
-/**
- * Rows each family must compare at every precision. A single total floor cannot see a family go
- * quiet: padding `10^15` to 15 decimals once hid the exact Canonical Amount bound from precisions
- * 1 through 15, because the padded text is not the double's shortest form and was rejected unlooked.
- */
-const MIN_FAMILY_ROWS: Partial<Record<Family, number>> = {
-	edge: 30,
+// Rows each family must compare at every precision, and every family has one: a single total floor
+// cannot see a family go quiet. Padded decimals once hid the exact Canonical Amount bound from
+// precisions 1 through 15, and a `tie` family of short decimals was empty at 15 while the
+// long-decimal rows satisfied a lone `ties >= 1`.
+const MIN_FAMILY_ROWS: Record<Family, number> = {
+	tie: 6,
+	nearTie: 8,
+	edge: 28,
 	bound: 6,
 	long: 70,
 	canonical: 250,
 }
 
-/**
- * Fixed-seed linear congruential generator, as in `minor-units.test.ts`, so nothing is random. A
- * copy, not an import: importing that file runs its tests, and a shared module would be a new `src/`
- * file the 100% coverage gate counts.
- */
+// Fixed-seed linear congruential generator, as in `minor-units.test.ts`, so nothing is random. A
+// copy, not an import: importing that file runs its tests, and a shared module would be a new `src/`
+// file the 100% coverage gate counts.
 const createSampler = (seed: number) => {
 	const step = (state: number) => (Math.imul(state, 1664525) + 1013904223) >>> 0
 	let state = seed
@@ -92,14 +109,12 @@ const referenceMinorUnits = (amount: number, digits: number): bigint | null => {
 	return negative ? -rounded : rounded
 }
 
-/**
- * Returns the reference value for a row, or why the row cannot be compared. A row is compared only
- * when `Number` reproduces its decimal text and the reference's magnitude after rounding is a safe
- * integer; the check is after rounding, because a magnitude below the limit can round one past it.
- * TODO(#11): an `e`-notation amount is dropped here, because the shipped code scales it with
- * `Math.round(abs * factor)` and #11 is open. One site covers both directions, since a Canonical
- * Amount of 1 at precision 7 is `1e-7`.
- */
+// Returns the reference value for a row, or why it cannot be compared. A row is compared only when
+// `Number` reproduces its decimal text and the reference's magnitude after rounding is a safe
+// integer; the check is after rounding, since a magnitude below the limit can round one past it.
+// TODO(#11): an `e`-notation amount is dropped here, because the shipped code scales it with
+// `Math.round(abs * factor)` and #11 is open. One site covers both directions, since a Canonical
+// Amount of 1 at precision 7 is `1e-7`.
 const comparable = (text: string, digits: number): bigint | Drop => {
 	const asDouble = String(Number(text))
 	if (asDouble.includes("e")) return "exponent"
@@ -110,34 +125,40 @@ const comparable = (text: string, digits: number): bigint | Drop => {
 }
 
 /** One amount as a candidate in both signs. */
-const bothSigns = (text: string, family: Family, tie = false): Candidate[] =>
-	[text, `-${text}`].map((value) => ({ text: value, tie, family }))
-
-/** Exact ties at every precision, both signs: `magnitude.000…5`. */
-const tieCases = (digits: number): Candidate[] =>
-	TIE_MAGNITUDES.flatMap((magnitude) =>
-		bothSigns(`${magnitude}.${"0".repeat(digits)}5`, "tie", true),
-	)
-
-/** Just below (`…49`) and just above (`…51`) each tie, both signs, so the dropped tail decides. */
-const nearTieCases = (digits: number): Candidate[] =>
-	TIE_MAGNITUDES.flatMap((magnitude) => {
-		const base = `${magnitude}.${"0".repeat(digits)}`
-		return [49, 51].flatMap((tail) => bothSigns(`${base}${tail}`, "nearTie"))
-	})
+const bothSigns = (text: string, family: Family): Candidate[] =>
+	[text, `-${text}`].map((value) => ({ text: value, family }))
 
 /**
- * Writes Minor Units as the shortest decimal at `digits` precision, dropping trailing zeros the way
- * `String(amount)` does, so the exactness guard keeps the row: `10^15` written as
- * `1.000000000000000` would never be compared at precision 15.
+ * Exact ties: a 16-digit mantissa ending in 5, its point placed so exactly one digit is dropped at
+ * this precision. A short decimal cannot be a tie above precision 14: `1.0000000000000005` needs 17
+ * significant digits, so `String(Number(...))` returns `1.0000000000000004` and the row is a
+ * near-tie the guard must reject. The seeded mantissa is what keeps this family non-empty at 15.
  */
+const tieCases = (digits: number): Candidate[] =>
+	Array.from({ length: TIE_ATTEMPTS }, (_, attempt) =>
+		bothSigns(tieText(TIE_SEED + digits * TIE_ATTEMPTS + attempt, digits, "5"), "tie"),
+	).flat()
+
+/**
+ * Just below and just above each tie, both signs, so the dropped tail decides: same mantissa with
+ * the final 5 moved down to 4 or up to 6.
+ */
+const nearTieCases = (digits: number): Candidate[] =>
+	Array.from({ length: TIE_ATTEMPTS }, (_, attempt) =>
+		["4", "6"].flatMap((tail) =>
+			bothSigns(tieText(TIE_SEED + digits * TIE_ATTEMPTS + attempt, digits, tail), "nearTie"),
+		),
+	).flat()
+
+// Writes Minor Units as the shortest decimal at `digits` precision, dropping trailing zeros the way
+// `String(amount)` does, so the exactness guard keeps the row: `10^15` written as
+// `1.000000000000000` would never be compared at precision 15.
 const decimalText = (minorUnits: number, digits: number): string => {
 	const padded = String(Math.abs(minorUnits)).padStart(digits + 1, "0")
 	const splitAt = padded.length - digits
 	const fraction = digits === 0 ? "" : padded.slice(splitAt).replace(/0+$/, "")
 	const major = padded.slice(0, splitAt)
-	const sign = minorUnits < 0 ? "-" : ""
-	return fraction === "" ? `${sign}${major}` : `${sign}${major}.${fraction}`
+	return `${minorUnits < 0 ? "-" : ""}${major}${fraction ? `.${fraction}` : ""}`
 }
 
 /** ±1 around each band member and each bound neighbour, both signs: exact values, no rounding. */
@@ -149,10 +170,8 @@ const edgeCases = (digits: number): Candidate[] =>
 		...BOUND_MINOR_UNITS.map((value) => ({ value, family: "bound" as const })),
 	].flatMap(({ value, family }) => bothSigns(decimalText(value, digits), family))
 
-/**
- * 17 seeded digits with the point placed so the scaled value is a 16-digit integer: the shape #6
- * double-rounded in. A row whose last digit is 5 is an exact tie at this precision.
- */
+// 17 seeded digits with the point placed so the scaled value is a 16-digit integer: the shape #6
+// double-rounded in.
 const longDecimalCases = (digits: number, sample: (max: number) => number): Candidate[] => {
 	const splitAt = Math.max(1, SCALED_DIGITS - digits)
 	const randomDigit = () => String(sample(9))
@@ -160,19 +179,16 @@ const longDecimalCases = (digits: number, sample: (max: number) => number): Cand
 	for (let attempt = 0; attempt < LONG_DECIMALS; attempt += 1) {
 		const digitsOnly = `${sample(8) + 1}${Array.from({ length: SCALED_DIGITS }, randomDigit).join("")}`
 		const text = `${digitsOnly.slice(0, splitAt)}.${digitsOnly.slice(splitAt)}`
-		const tie = digitsOnly.endsWith("5")
-		cases.push(...bothSigns(text, "long", tie))
+		cases.push(...bothSigns(text, "long"))
 	}
 	return cases
 }
 
 type Sweep = {
 	readonly compared: ReadonlyMap<Family, number>
-	readonly ties: number
 	readonly exponentDropped: string[]
 }
 
-/** Runs candidates through `comparable`, tallying every drop and comparing the rows it keeps. */
 const runSweep = (
 	cases: Candidate[],
 	digits: number,
@@ -180,7 +196,6 @@ const runSweep = (
 ): Sweep => {
 	const compared = new Map<Family, number>()
 	const exponentDropped: string[] = []
-	let ties = 0
 	for (const candidate of cases) {
 		const checked = comparable(candidate.text, digits)
 		if (typeof checked !== "bigint") {
@@ -189,29 +204,26 @@ const runSweep = (
 		}
 		compare(candidate, checked)
 		compared.set(candidate.family, (compared.get(candidate.family) ?? 0) + 1)
-		if (candidate.tie) ties += 1
 	}
-	return { compared, ties, exponentDropped }
+	return { compared, exponentDropped }
 }
 
-/** Fails when a family compares fewer rows than its floor, rather than passing on the other families. */
+/** Fails when a family compares fewer rows than its floor, not when the other families pad the total. */
 const expectFamilyFloors = (sweep: Sweep, digits: number, families: Family[]): void => {
-	for (const family of families) {
-		const rows = sweep.compared.get(family) ?? 0
-		expect(rows, `${family} rows at ${digits} digits`).toBeGreaterThanOrEqual(
-			MIN_FAMILY_ROWS[family] ?? 0,
-		)
-	}
+	for (const family of families)
+		expect(
+			sweep.compared.get(family) ?? 0,
+			`${family} rows at ${digits} digits`,
+		).toBeGreaterThanOrEqual(MIN_FAMILY_ROWS[family])
 }
 
 /** Compares every generated amount at one precision, both signs, against the reference. */
 const sweepToMinorUnits = (digits: number): Sweep => {
-	const sample = createSampler(LONG_DECIMAL_SEED + digits)
 	const cases = [
 		...tieCases(digits),
 		...nearTieCases(digits),
 		...edgeCases(digits),
-		...longDecimalCases(digits, sample),
+		...longDecimalCases(digits, createSampler(LONG_DECIMAL_SEED + digits)),
 	]
 	return runSweep(cases, digits, ({ text }, expected) => {
 		const actual = toMinorUnits(Number(text), digits, "amount", { allowNegative: true })
@@ -227,7 +239,6 @@ const canonicalCases = (digits: number): Candidate[] => {
 	return [...boundary, ...sampled].flatMap((minorUnits) =>
 		(minorUnits > 0 ? [minorUnits, -minorUnits] : [minorUnits]).map((value) => ({
 			text: String(fromMinorUnits(value, digits, "minorUnits", { allowNegative: true })),
-			tie: false,
 			family: "canonical" as const,
 			minorUnits: value,
 		})),
@@ -252,23 +263,23 @@ describe("exact decimal reference", () => {
 	it("holds toMinorUnits to it at every precision, ties included", () => {
 		for (let digits = 0; digits <= 15; digits += 1) {
 			const sweep = sweepToMinorUnits(digits)
-			expectFamilyFloors(sweep, digits, ["edge", "bound", "long"])
-			expect(sweep.ties, `exact ties at ${digits} digits`).toBeGreaterThanOrEqual(1)
-			expect(sweep.exponentDropped, `e-notation rows at ${digits} digits`).toEqual([])
+			expectFamilyFloors(sweep, digits, ["tie", "nearTie", "edge", "bound", "long"])
+			expect(sweep.exponentDropped, `e rows at ${digits}`).toEqual([])
 		}
 	})
 
 	it("holds fromMinorUnits to it for Canonical Amounts at every precision", () => {
 		for (let digits = 0; digits <= 15; digits += 1) {
 			const sweep = sweepFromMinorUnits(digits)
-			// No tie floor here: a Canonical Amount is an exact multiple of its Minor Unit, so this
-			// direction never rounds, and a tie is impossible by construction.
+			// No tie floor: a Canonical Amount is an exact multiple of its Minor Unit, so this
+			// direction never rounds and a tie is impossible. The dropped rows are checked against the
+			// documented `String` thresholds, not the guard's own predicate.
 			expectFamilyFloors(sweep, digits, ["canonical"])
-			for (const text of sweep.exponentDropped) expect(String(Number(text))).toContain("e")
-			expect(
-				sweep.exponentDropped.length,
-				`e-notation rows at ${digits} digits`,
-			).toBeLessThanOrEqual(MAX_EXPONENT_DROPS)
+			expect(sweep.exponentDropped.length, `e rows at ${digits}`).toBeLessThanOrEqual(
+				MAX_EXPONENT_DROPS,
+			)
+			for (const dropped of sweep.exponentDropped)
+				expect(writesWithExponent(Number(dropped)), `${dropped} at ${digits}`).toBe(true)
 		}
 	})
 })
