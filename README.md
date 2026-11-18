@@ -46,7 +46,7 @@ Convert **once**, at the boundary you own, and carry integer Minor Units from th
 
 ## Commands
 
-- `bun run check`: lint, typecheck, tests with 100% line coverage, build, `publint --strict` and `attw`.
+- `bun run check`: lint, typecheck, tests with 100% line coverage, build, the packed tarball's entries and README examples under Node, `publint --strict` and `attw`.
 - `bun run test`: tests plus the coverage threshold.
 - `bun run build`: ESM and CJS bundles via `tsdown`.
 
