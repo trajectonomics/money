@@ -1,0 +1,17 @@
+name: Tooling drift
+
+# Weekly report of a stale @trajectonomics/tooling pin or of a local Biome rule.
+# The caller owns the schedule: a reusable workflow's own schedule does not fire
+# for the repositories that call it. workflow_dispatch runs it by hand.
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift:
+    uses: trajectonomics/cicd/.github/workflows/drift.yml@v1
