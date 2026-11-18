@@ -42,7 +42,7 @@
 		"typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
 		"lint": "biome ci --error-on-warnings .",
 		"format": "biome check --write .",
-		"check": "bun run lint && bun run typecheck && bun run test && bun run build && bun run lint:package",
+		"check": "bun run lint && bun run typecheck && bun run test && bun run build && bun run scripts/check-dist.ts && bun run lint:package",
 		"lint:package": "publint --strict && attw --pack . --profile node16"
 	},
 	"devDependencies": {
