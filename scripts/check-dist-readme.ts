@@ -40,7 +40,7 @@ function addImports(line: string, names: Set<string>): boolean {
 	return true
 }
 
-function addExample(line: string): Example {
+function parseExample(line: string): Example {
 	const match = EXAMPLE.exec(line)
 	const expression = (match?.[1] ?? "").trim()
 	const expected = match?.[2] ?? ""
@@ -56,7 +56,7 @@ export function parseReadme(readme: string): Readme {
 	for (const raw of apiFence(readme)) {
 		const line = raw.trim()
 		if (line === "" || line.startsWith("//") || addImports(line, names)) continue
-		examples.push(addExample(line))
+		examples.push(parseExample(line))
 	}
 	if (names.size === 0) throw new Error("README has no package import")
 	for (const required of ["toMinorUnits", "MoneyValidationError"]) {
@@ -66,7 +66,8 @@ export function parseReadme(readme: string): Readme {
 	return { names: [...names], examples }
 }
 
-export function buildRunner(names: readonly string[], examples: readonly Example[]): string {
+export function buildRunner(readme: Readme): string {
+	const { names, examples } = readme
 	const assertions = examples
 		.map(
 			(example) =>

@@ -58,7 +58,7 @@ function main(): void {
 		})
 		const runnerPath = join(temp, "check-dist.cjs")
 		const output = step("node", () => {
-			fs.writeFileSync(runnerPath, buildRunner(readme.names, readme.examples))
+			fs.writeFileSync(runnerPath, buildRunner(readme))
 			return run("node", [runnerPath], temp)
 		})
 		process.stdout.write(output)
