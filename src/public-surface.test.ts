@@ -3,18 +3,20 @@ import type { ValidateAmountOptions } from "./index"
 import * as entryPoint from "./index"
 
 /**
- * The published surface is the three runtime names below plus the `ValidateAmountOptions` type.
+ * Pins the published surface so a fourth export cannot ship.
  *
- * `docs/adr/0001-decimal-scaling-primitives.md` states it as "the surface is deliberately three
- * exports" and `AGENTS.md` rule 8 names the two conversions, the validation they need and
- * `MoneyValidationError`; read together, both describe this list. Pinning it here makes the rule
- * mechanical, because every other gate checks something else: Biome and `tsc` read the syntax and
- * types of whatever exists, the suite tests values, the coverage script counts lines, and
- * `publint`/`attw` inspect packaging metadata.
+ * The surface is the three runtime names in the list below plus the `ValidateAmountOptions` type.
+ * `docs/adr/0001-decimal-scaling-primitives.md` states the runtime half as "the surface is
+ * deliberately three exports", and `AGENTS.md` rule 8 names the two conversions, the validation they
+ * need and `MoneyValidationError`, where "the validation they need" is what covers the options type.
+ * Pinning it here makes both mechanical, because every other gate checks something else: Biome and
+ * `tsc` read the syntax and types of whatever exists, the suite tests values, the coverage script
+ * counts lines, and `publint`/`attw` inspect packaging metadata.
  *
- * The comparison is exact in both directions, not a subset: a fourth name, a removed name, a
- * `default` export and a star re-export all fail. That is intended, so a breaking removal is a
- * deliberate edit to this list rather than an unnoticed regression.
+ * The comparison is exact in both directions, not a subset: a fourth name, a removed name and a
+ * `default` export all fail, as does a star re-export that brings a name not in the list. That is
+ * intended, so a breaking removal is a deliberate edit to the list rather than an unnoticed
+ * regression.
  *
  * What this does not catch: a type-only addition. TypeScript erases type exports, so a namespace
  * import cannot see them, and `attw` resolves module conditions rather than export membership. Only
