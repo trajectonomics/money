@@ -36,6 +36,8 @@ fromMinorUnits(500, 0) // 500
 
 Both throw `MoneyValidationError` - carrying `field`, `value` and `reason` - when the precision is not a safe integer in `0..15`, the amount is `NaN` or infinite, a negative amount arrives without `allowNegative`, an amount is not an integer where one is required, or a result leaves the safe integer range.
 
+The package's `import` and `require` entry points expose the same `MoneyValidationError` class object, so `instanceof` holds whichever condition a process loaded, even a process that loads both.
+
 ## Crossing a package boundary
 
 Convert **once**, at the boundary you own, and carry integer Minor Units from there:
@@ -48,7 +50,7 @@ Convert **once**, at the boundary you own, and carry integer Minor Units from th
 
 - `bun run check`: lint, typecheck, tests with 100% line coverage, build, the packed tarball's entries and README examples under Node, `publint --strict` and `attw`.
 - `bun run test`: tests plus the coverage threshold.
-- `bun run build`: ESM and CJS bundles via `tsdown`.
+- `bun run build`: the CJS bundle and its ESM facade via `tsdown`.
 
 ## Releasing
 
